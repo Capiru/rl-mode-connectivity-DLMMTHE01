@@ -50,6 +50,7 @@ def play_move(env,agent,model,eval = False,eps = None,num_sims = None, cfg = cfg
         else:
             action = env.action_space(agent).sample(observation["action_mask"])
     env.step(action)
+    
     _, _, done, _, _ = env.last()
     try:
         reward = env.rewards[agent]
@@ -57,7 +58,7 @@ def play_move(env,agent,model,eval = False,eps = None,num_sims = None, cfg = cfg
         reward = 0
 
     if return_action_probs:
-        return observation,reward, tp
+        return observation,reward, tp, done
     elif isinstance(action,np.ndarray):
         action = int(action)
     return observation, reward, action, done
@@ -127,7 +128,7 @@ def save_model(model,model_elo,avg_moves,epoch,model_id,num_sims,cfg = cfg):
     except Exception as e:
         os.makedirs(f"{cfg.episode_save_path}/models/")
         torch.save(model.state_dict(), model_save_path)
-    new_model = pd.DataFrame({"model":model_save_path,"elo":model_elo,"avg_moves":avg_moves,"model_id":model_id,"epoch":epoch,"num_sims":num_sims,"model_type":cfg.model_type,"episodes": epoch * cfg.episodes_per_epoch},index = [len(cfg.models_df)])
+    new_model = pd.DataFrame({"model":model_save_path,"elo":model_elo,"avg_moves":avg_moves,"model_id":model_id,"epoch":epoch,"num_sims":num_sims,"model_type":cfg.model_type,"episodes": epoch * cfg.episodes_per_epoch,"num_parameters":model.num_parameters()},index = [len(cfg.models_df)])
     try:
         cfg.models_df =  pd.concat([cfg.models_df,new_model])
     except Exception as e:

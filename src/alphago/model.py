@@ -39,16 +39,19 @@ class SimpleConvnet(nn.Module):
         a,b,c = cfg.obs_size[cfg.env_type]
         self.layers = {}
         self.n_layers = n_layers
-        self.conv1 = nn.Conv2d(c, 32, kernel_size=5, padding=2)
-        self.conv2 = nn.Conv2d(32, 32, kernel_size=5, padding=2)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, padding=2)
-        self.conv4 = nn.Conv2d(32, 32, kernel_size=5, padding=2)
+        self.conv1 = nn.Conv2d(c, 192, kernel_size=5, padding=2)
+        self.conv2 = nn.Conv2d(192, 96, kernel_size=5, padding=2)
+        self.conv3 = nn.Conv2d(96, 48, kernel_size=5, padding=2)
+        self.conv4 = nn.Conv2d(48, 32, kernel_size=5, padding=2)
         self.conv5 = nn.Conv2d(32, 32, kernel_size=5, padding=2)
         self.mlp_input = nn.Linear(a*b*32,mlp_size)
         self.mlp1 = nn.Linear(mlp_size,mlp_size)
         self.mlp2 = nn.Linear(mlp_size,mlp_size)
         self.policy_h = nn.Linear(mlp_size,cfg.action_size[cfg.env_type])
         self.value_h = nn.Linear(mlp_size,1)
+        
+    def num_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         if len(x.shape) > 3:
