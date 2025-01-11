@@ -31,6 +31,8 @@ class GameHistoryDataset(Dataset):
         self.df.reset_index(drop=True, inplace=True)
         self.df["episode"] = self.df.index
         
+        if "go" in cfg.env_type:
+            self.df["move_count"] = self.df["move_count"]-2
         
         self.episode_replay_df = self.df.loc[self.df.index.repeat(self.df["move_count"])].copy()
         self.episode_replay_df["timestep"] = self.episode_replay_df.groupby(level=0).cumcount()
