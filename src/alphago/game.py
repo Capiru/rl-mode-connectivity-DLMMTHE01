@@ -228,7 +228,7 @@ def eval_tournament(models_df, model, n_games=100, num_sims=None, cfg=cfg):
         cfg=cfg,
     )
     elo_diff = get_elo_diff_from_outcomes(outcomes)
-    sorted_models = models_df.loc[models_df["elo"] > elo_diff].sort_values("elo")
+
     actual_elo = elo_diff
 
     # Test Versus Randomly Initialized Net with Same Parameters
@@ -242,7 +242,12 @@ def eval_tournament(models_df, model, n_games=100, num_sims=None, cfg=cfg):
     print(
         f"Elo diff from Random {elo_diff} Avg. Moves {avg_moves} - From Randomly Initialized Net {elo_diff_nn} Avg. Moves {avg_moves_nn}"
     )
-    print(models_df)
+    if elo_diff >= 400.0 and cfg.num_simulations > 0.0:
+        actual_elo += elo_diff_nn
+    sorted_models = models_df.loc[models_df["elo"] >= actual_elo].sort_values(
+        by=["elo", "epoch"], ascending=[True, False]
+    )
+    print(sorted_models)
     if actual_elo >= 300:
         for i in range(50):
             if len(sorted_models) < 1:
@@ -522,10 +527,6 @@ def self_play(max_patience=5, cfg=cfg):
                 f"{cfg.episode_save_path}/{cfg.env_type}/num_sims_{cfg.num_simulations}"
                 + "/models.csv"
             )
-            models = {
-                cfg.agents[cfg.env_type][0]: model,
-                cfg.agents[cfg.env_type][1]: None,
-            }
             if model_elo >= best_elo:
                 best_elo = model_elo
                 torch.save(model.state_dict(), "best_model.pth")
