@@ -144,7 +144,7 @@ class AlphaGoZeroResnet(nn.Module):
 
         policy = F.softmax(self.policy_h(torch.flatten(p_out, 1)), dim=-1)
         value = F.tanh(self.value_h(torch.flatten(v_out, 1)))
-        if len(x.shape) > 3:
+        if policy.shape[0] == 1:
             policy = policy.reshape(policy.shape[1])
             value = value.reshape(value.shape[1])
 
