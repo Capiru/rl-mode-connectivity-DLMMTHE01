@@ -14,6 +14,7 @@ def train_model(model, dataset=None, epochs=1, learning_rate=None, cfg=cfg):
     if not learning_rate:
         learning_rate = cfg.learning_rate
 
+    model.to(cfg.device)
     model.train()
     # Load dataset
     dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True)
@@ -34,6 +35,11 @@ def train_model(model, dataset=None, epochs=1, learning_rate=None, cfg=cfg):
             if i >= cfg.batch_samples_from_buffer:
                 break
             # Forward pass
+            obs, action, reward = (
+                obs.to(cfg.device),
+                action.to(cfg.device),
+                reward.to(cfg.device),
+            )
             optimizer.zero_grad()
             policy_pred, value_pred = model(obs)
 
@@ -63,6 +69,7 @@ def train_model(model, dataset=None, epochs=1, learning_rate=None, cfg=cfg):
         logger.debug(
             f"Epoch {epoch+1}/{epochs}, Policy Loss: {running_policy_loss:.4f}, Value Loss: {running_value_loss:.4f} N_batches: {len(dataloader)}"
         )
+    model.to("cpu")
     return model, (
         running_policy_loss / cfg.batch_samples_from_buffer,
         running_value_loss / cfg.batch_samples_from_buffer,
