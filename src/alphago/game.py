@@ -1,7 +1,7 @@
-from alphago.config import cfg
 import torch
 import numpy as np
-import math
+
+from alphago.config import Settings
 
 from alphago.env import get_env
 from alphago.utils import (
@@ -12,6 +12,7 @@ from alphago.utils import (
     get_model,
     get_elo_diff_from_outcomes,
     save_model,
+    save_eval_result,
 )
 from alphago.data import GameHistoryDataset
 from alphago.train import train_model
@@ -20,6 +21,7 @@ from alphago.schedulers import lr_scheduler, eps_scheduler
 from IPython.display import clear_output
 import pandas as pd
 import gc
+import copy
 
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -41,7 +43,8 @@ def play_game(
     eps=None,
     num_sims=None,
     model_id=0,
-    cfg=cfg,
+    player_to_learn=2,
+    cfg=None,
 ):
     if not eps:
         eps = cfg.eps
@@ -54,6 +57,27 @@ def play_game(
     game_history = torch.zeros((*cfg.obs_size[cfg.env_type], episode_length))
     action_history = torch.zeros((cfg.action_size[cfg.env_type], episode_length))
     reward = 0
+    done = False
+
+    if not eval and cfg.random_moves_at_start:
+        rand_moves = np.random.randint(0, cfg.random_moves_at_start + 1) * 2
+        rand_moves_count = 0
+        if rand_moves > 0:
+            for agent in env.agent_iter():
+                obs, reward, action, done = play_move(
+                    env,
+                    agent,
+                    model=None,
+                    eval=eval,
+                    eps=eps,
+                    num_sims=num_sims,
+                    cfg=cfg,
+                )
+                rand_moves_count += 1
+                if rand_moves_count >= rand_moves or done:
+                    break
+    if done:
+        return 0, 10
     for agent in env.agent_iter():
         model = models[agent]
         obs, reward, action, done = play_move(
@@ -91,6 +115,8 @@ def play_game(
             model_elo=model_elo,
             n_moves=ply_count,
             model_id=model_id,
+            player_to_learn=player_to_learn,
+            eval=eval,
             cfg=cfg,
         )
 
@@ -114,7 +140,7 @@ def one_eval_round(
     outcomes,
     ply_total,
     num_sims=None,
-    cfg=cfg,
+    cfg=None,
 ):
     if not num_sims:
         num_sims = cfg.num_simulations
@@ -123,7 +149,7 @@ def one_eval_round(
         outcome, ply_game = play_game(
             env,
             models,
-            save_game_flag=False,
+            save_game_flag=True,
             episode_length=episode_length,
             eval=True,
             eps=0,
@@ -135,7 +161,7 @@ def one_eval_round(
         outcome, ply_game = play_game(
             env,
             models_inverted,
-            save_game_flag=False,
+            save_game_flag=True,
             episode_length=episode_length,
             eval=True,
             eps=0,
@@ -159,7 +185,7 @@ def tournament_match(
     episode_length=None,
     opponent_elo=0,
     num_sims=None,
-    cfg=cfg,
+    cfg=None,
     use_tqdm=True,
 ):
     if not num_sims:
@@ -217,7 +243,7 @@ def tournament_match(
     return [wins, dnfs, losses], ply_total / (i + 1)
 
 
-def eval_tournament(models_df, model, n_games=100, num_sims=None, cfg=cfg):
+def eval_tournament(models_df, model, iteration, n_games=100, num_sims=None, cfg=None):
     if not num_sims:
         num_sims = cfg.num_simulations
     # Test versus Random Agent
@@ -233,7 +259,10 @@ def eval_tournament(models_df, model, n_games=100, num_sims=None, cfg=cfg):
 
     # Test Versus Randomly Initialized Net with Same Parameters
     outcomes_nn, avg_moves_nn = tournament_match(
-        {cfg.agents[cfg.env_type][0]: model, cfg.agents[cfg.env_type][1]: get_model()},
+        {
+            cfg.agents[cfg.env_type][0]: model,
+            cfg.agents[cfg.env_type][1]: get_model(cfg=cfg),
+        },
         n_games=n_games,
         num_sims=num_sims,
         cfg=cfg,
@@ -248,7 +277,20 @@ def eval_tournament(models_df, model, n_games=100, num_sims=None, cfg=cfg):
         by=["elo", "epoch"], ascending=[True, False]
     )
     print(sorted_models)
-    if actual_elo >= 300:
+    save_eval_result(
+        iteration=iteration,
+        elo_random_play=elo_diff,
+        move_count_random_play=avg_moves,
+        elo_random_init=elo_diff_nn,
+        move_count_random_init=avg_moves_nn,
+        model_id=0,
+        elo_opp=0,
+        move_count=0,
+        elo_diff=0,
+        winrate=outcomes[1] / sum(outcomes),
+        cfg=cfg,
+    )
+    if actual_elo >= 35:
         for i in range(50):
             if len(sorted_models) < 1:
                 break
@@ -256,7 +298,7 @@ def eval_tournament(models_df, model, n_games=100, num_sims=None, cfg=cfg):
             eval_model.load_state_dict(
                 torch.load(sorted_models.iloc[0]["model"], weights_only=True)
             )
-            outcomes, avg_moves = tournament_match(
+            outcomes_new, avg_moves_new = tournament_match(
                 {
                     cfg.agents[cfg.env_type][0]: model,
                     cfg.agents[cfg.env_type][1]: eval_model,
@@ -266,16 +308,34 @@ def eval_tournament(models_df, model, n_games=100, num_sims=None, cfg=cfg):
                 num_sims=num_sims,
                 cfg=cfg,
             )
-            elo_diff = get_elo_diff_from_outcomes(outcomes)
+            elo_diff_new = get_elo_diff_from_outcomes(outcomes_new)
 
-            actual_elo = sorted_models.iloc[0]["elo"] + elo_diff
+            actual_elo = sorted_models.iloc[0]["elo"] + elo_diff_new
+            save_eval_result(
+                iteration=iteration,
+                elo_random_play=elo_diff,
+                move_count_random_play=avg_moves,
+                elo_random_init=elo_diff_nn,
+                move_count_random_init=avg_moves_nn,
+                model_id=0,
+                elo_opp=sorted_models.iloc[0]["elo"],
+                move_count=avg_moves_new,
+                elo_diff=elo_diff_new,
+                winrate=outcomes_new[1] / sum(outcomes_new),
+                cfg=cfg,
+            )
             print(f"Estimated agent Elo {actual_elo}")
-            if elo_diff <= 0 or len(sorted_models) <= 1:
+            if elo_diff_new <= 0 or len(sorted_models) <= 1:
                 break
             else:
                 sorted_models = sorted_models.loc[sorted_models["elo"] >= actual_elo]
                 del eval_model
                 gc.collect()
+    cfg.eval_df.to_csv(
+        cfg.episode_save_path
+        + f"/{cfg.env_type}/num_sims_{cfg.num_simulations}"
+        + "/eval.csv"
+    )
     return actual_elo, outcomes, avg_moves
 
 
@@ -291,7 +351,7 @@ def generate_one_game(
     eps=None,
     num_sims=None,
     model_id=0,
-    cfg=cfg,
+    cfg=None,
 ):
     if not num_sims:
         num_sims = cfg.num_simulations
@@ -336,7 +396,7 @@ def generate_games(
     eps=None,
     num_sims=None,
     model_id=0,
-    cfg=cfg,
+    cfg=None,
     use_tqdm=True,
 ):
     if not num_sims:
@@ -400,7 +460,7 @@ def generate_games(
     )
 
 
-def self_play(max_patience=5, cfg=cfg):
+def self_play(cfg, max_patience=5):
     model = get_model(cfg=cfg)
     print(f"Model with {model.num_parameters()} parameters")
 
@@ -411,7 +471,7 @@ def self_play(max_patience=5, cfg=cfg):
             f"{cfg.episode_save_path}/{cfg.env_type}/num_sims_{cfg.num_simulations}/models.csv"
         )
         cfg.episodes_df = pd.read_csv(
-            f"{cfg.episode_save_path}/{cfg.env_type}/num_sims_{cfg.num_simulations}/models.csv"
+            f"{cfg.episode_save_path}/{cfg.env_type}/num_sims_{cfg.num_simulations}/games.csv"
         )
         start_epoch = cfg.models_df["epoch"].max() + 1
         eps, learning_rate = (
@@ -432,7 +492,7 @@ def self_play(max_patience=5, cfg=cfg):
         # model = torch.load("best_model.pth")
         # print("Previous best model loaded")
         model_elo, outcomes, avg_moves = eval_tournament(
-            cfg.models_df, model, n_games=eval_games, cfg=cfg
+            cfg.models_df, model, iteration=0, n_games=eval_games, cfg=cfg
         )
         print(
             "Epoch: 0 Total episodes generated: 0",
@@ -456,19 +516,35 @@ def self_play(max_patience=5, cfg=cfg):
             epoch=0,
             model_id=0,
             num_sims=cfg.num_simulations,
+            policy_loss=0,
+            value_loss=0,
             cfg=cfg,
         )
+
     except Exception as e:
         print(e)
         pass
 
-    models = {cfg.agents[cfg.env_type][0]: model, cfg.agents[cfg.env_type][1]: model}
+    if cfg.use_only_best_model:
+        best_model = copy.deepcopy(model)
+        models = {
+            cfg.agents[cfg.env_type][0]: best_model,
+            cfg.agents[cfg.env_type][1]: best_model,
+        }
+    else:
+        models = {
+            cfg.agents[cfg.env_type][0]: model,
+            cfg.agents[cfg.env_type][1]: model,
+        }
 
     best_elo = 0
     model_elo = 0
     for i in range(start_epoch, int(cfg.max_n_episodes // cfg.episodes_per_epoch)):
         eps, learning_rate = eps_scheduler(i, cfg), lr_scheduler(i, cfg)
-        model.eval()
+        if cfg.use_only_best_model:
+            best_model.eval()
+        else:
+            model.eval()
         generate_games(
             models,
             num_games=cfg.episodes_per_epoch,
@@ -480,22 +556,15 @@ def self_play(max_patience=5, cfg=cfg):
 
         dataset = GameHistoryDataset(cfg=cfg)
 
-        cfg.batch_samples_from_buffer = max(
-            math.floor(len(dataset) * cfg.sampling_ratio) // cfg.batch_size, 1
-        )
         model, losses = train_model(
-            model, dataset, learning_rate=learning_rate, cfg=cfg
+            model, dataset, iteration=i, learning_rate=learning_rate, cfg=cfg
         )
-        print(
-            "Epoch:",
-            i,
-            f"Model Trained - Policy Loss : {losses[0]}, Value Loss : {losses[1]}",
-        )
+        policy_loss, value_loss = losses
 
         if i % cfg.eval_every_n_epochs == 0 and i > 0:
             model.eval()
             model_elo, outcomes, avg_moves = eval_tournament(
-                cfg.models_df, model, n_games=eval_games, cfg=cfg
+                cfg.models_df, model, iteration=i, n_games=eval_games, cfg=cfg
             )
             print(
                 "Epoch:",
@@ -521,6 +590,8 @@ def self_play(max_patience=5, cfg=cfg):
                 epoch=i,
                 model_id=0,
                 num_sims=cfg.num_simulations,
+                policy_loss=policy_loss,
+                value_loss=value_loss,
                 cfg=cfg,
             )
             cfg.models_df.to_csv(
@@ -530,6 +601,13 @@ def self_play(max_patience=5, cfg=cfg):
             if model_elo >= best_elo:
                 best_elo = model_elo
                 torch.save(model.state_dict(), "best_model.pth")
+                if cfg.use_only_best_model:
+                    print("Best model updated for game generation!")
+                    best_model = copy.deepcopy(model)
+                    models = {
+                        cfg.agents[cfg.env_type][0]: best_model,
+                        cfg.agents[cfg.env_type][1]: best_model,
+                    }
                 # print("Saved best model so far")
                 # patience = 0
             # elif model_elo <= best_elo - 400:
@@ -547,4 +625,4 @@ def self_play(max_patience=5, cfg=cfg):
 
 if __name__ == "__main__":
     # asyncio.run()
-    self_play(cfg=cfg)
+    self_play(cfg=Settings())
