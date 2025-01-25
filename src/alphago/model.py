@@ -3,20 +3,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from alphago.config import cfg
 
 
 class SimpleModel(nn.Module):
     def __init__(
         self,
-        input_space=(9, 9, 17),
-        output_policy=(82),
-        output_value=(1),
         mlp_size=1024,
         n_layers=8,
-        cfg=cfg,
+        cfg=None,
     ) -> None:
         super().__init__()
+        self.cfg = cfg
         self.input_l = nn.Linear(math.prod(cfg.obs_size[cfg.env_type]), mlp_size)
         self.layers = nn.ModuleDict()
         self.n_layers = n_layers
@@ -45,14 +42,12 @@ class SimpleModel(nn.Module):
 class SimpleConvnet(nn.Module):
     def __init__(
         self,
-        input_space=(9, 9, 17),
-        output_policy=(82),
-        output_value=(1),
         mlp_size=64,
         n_layers=8,
-        cfg=cfg,
+        cfg=None,
     ) -> None:
         super().__init__()
+        self.cfg = cfg
         a, b, c = cfg.obs_size[cfg.env_type]
         self.layers = nn.ModuleDict()
         self.n_layers = n_layers
@@ -97,14 +92,11 @@ class SimpleConvnet(nn.Module):
 class AlphaGoZeroResnet(nn.Module):
     def __init__(
         self,
-        input_space=(9, 9, 17),
-        output_policy=(82),
-        output_value=(1),
-        mlp_size=64,
-        n_layers=1,
-        cfg=cfg,
+        n_layers=5,
+        cfg=None,
     ) -> None:
         super().__init__()
+        self.cfg = cfg
         a, b, c = cfg.obs_size[cfg.env_type]
         self.layers = nn.ModuleDict()
         self.n_layers = n_layers
@@ -113,14 +105,19 @@ class AlphaGoZeroResnet(nn.Module):
         for i in range(self.n_layers):
             self.layers[f"conv_{i}_1"] = nn.Conv2d(256, 256, kernel_size=3, padding=1)
             self.layers[f"bn_{i}_1"] = nn.BatchNorm2d(256)
+            self.layers[f"dout_{i}_1"] = nn.Dropout(p=cfg.dropout)
             self.layers[f"conv_{i}_2"] = nn.Conv2d(256, 256, kernel_size=3, padding=1)
             self.layers[f"bn_{i}_2"] = nn.BatchNorm2d(256)
+            self.layers[f"dout_{i}_2"] = nn.Dropout(p=cfg.dropout)
 
         self.policy_h_1 = nn.Conv2d(256, 2, kernel_size=1, padding=0)
+        self.policy_bn_1 = nn.BatchNorm2d(2)
         self.policy_h = nn.Linear(2 * a * b, cfg.action_size[cfg.env_type])
 
         self.value_h_1 = nn.Conv2d(256, 1, kernel_size=1, padding=0)
-        self.value_h = nn.Linear(a * b, 1)
+        self.value_bn_1 = nn.BatchNorm2d(1)
+        self.value_mlp_1 = nn.Linear(a * b, 256)
+        self.value_h = nn.Linear(256, 1)
 
     def num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -135,15 +132,20 @@ class AlphaGoZeroResnet(nn.Module):
         res = x
         for i in range(self.n_layers):
             x = F.leaky_relu(self.layers[f"bn_{i}_1"](self.layers[f"conv_{i}_1"](x)))
+            x = self.layers[f"dout_{i}_1"](x)
             x = self.layers[f"bn_{i}_2"](self.layers[f"conv_{i}_2"](x))
             x = x + res
             res = x
             x = F.leaky_relu(x)
-        p_out = F.leaky_relu(self.policy_h_1(x))
-        v_out = F.leaky_relu(self.value_h_1(x))
+            x = self.layers[f"dout_{i}_2"](x)
+
+        p_out = F.leaky_relu(self.policy_bn_1(self.policy_h_1(x)))
+        v_out = F.leaky_relu(self.value_bn_1(self.value_h_1(x)))
+
+        v_mlp = F.leaky_relu(self.value_mlp_1(torch.flatten(v_out, 1)))
 
         policy = F.softmax(self.policy_h(torch.flatten(p_out, 1)), dim=-1)
-        value = F.tanh(self.value_h(torch.flatten(v_out, 1)))
+        value = F.tanh(self.value_h(torch.flatten(v_mlp, 1)))
         if policy.shape[0] == 1:
             policy = policy.reshape(policy.shape[1])
             value = value.reshape(value.shape[1])
@@ -154,12 +156,9 @@ class AlphaGoZeroResnet(nn.Module):
 class SimpleResnet(nn.Module):
     def __init__(
         self,
-        input_space=(9, 9, 17),
-        output_policy=(82),
-        output_value=(1),
         mlp_size=64,
         n_layers=8,
-        cfg=cfg,
+        cfg=None,
     ) -> None:
         super().__init__()
         a, b, c = cfg.obs_size[cfg.env_type]
