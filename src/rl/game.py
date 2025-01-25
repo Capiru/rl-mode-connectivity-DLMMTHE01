@@ -1,10 +1,10 @@
 import torch
 import numpy as np
 
-from alphago.config import Settings
+from rl.config import Settings
 
-from alphago.env import get_env
-from alphago.utils import (
+from rl.env import get_env
+from rl.utils import (
     play_move,
     save_game,
     get_episode_path,
@@ -14,9 +14,9 @@ from alphago.utils import (
     save_model,
     save_eval_result,
 )
-from alphago.data import GameHistoryDataset
-from alphago.train import train_model
-from alphago.schedulers import lr_scheduler, eps_scheduler
+from rl.data import GameHistoryDataset
+from rl.train import train_model
+from rl.schedulers import lr_scheduler, eps_scheduler
 
 from IPython.display import clear_output
 import pandas as pd

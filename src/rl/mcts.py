@@ -9,7 +9,7 @@ import math
 import numpy as np
 import torch
 
-from alphago.env import get_env
+from rl.env import get_env
 
 import asyncio
 import concurrent.futures

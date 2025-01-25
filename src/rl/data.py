@@ -1,7 +1,7 @@
 ### Dataset
 import torch
 from torch.utils.data import Dataset
-from alphago.schedulers import buffer_size_scheduler
+from rl.schedulers import buffer_size_scheduler
 import logging
 
 logger = logging.getLogger(__name__)

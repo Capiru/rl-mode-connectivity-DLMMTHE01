@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-from alphago.mcts import MCTS, Node
-from alphago.model import SimpleConvnet, SimpleModel, AlphaGoZeroResnet
+from rl.mcts import MCTS, Node
+from rl.model import SimpleConvnet, SimpleModel, AlphaGoZeroResnet
 
 import pandas as pd
 import numpy as np
