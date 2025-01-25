@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-from alphago.config import cfg
 from alphago.mcts import MCTS, Node
 from alphago.model import SimpleConvnet, SimpleModel, AlphaGoZeroResnet
 
@@ -19,7 +18,7 @@ logger.setLevel("INFO")
 
 
 ### Util Functions
-def play_move(env, agent, model, eval=False, eps=None, num_sims=None, cfg=cfg):
+def play_move(env, agent, model, eval=False, eps=None, num_sims=None, cfg=None):
     if not eps:
         eps = cfg.eps
     if not num_sims:
@@ -47,7 +46,7 @@ def play_move(env, agent, model, eval=False, eps=None, num_sims=None, cfg=cfg):
             action = m.sample().detach().cpu().numpy().astype(np.int64)
             logger.debug(f"Action chosen - {action}")
         elif isinstance(model, nn.Module) and num_sims > 0:
-            mcts = MCTS(model=model, eval=eval, eps=eps, num_sims=num_sims)
+            mcts = MCTS(model=model, eval=eval, eps=eps, num_sims=num_sims, cfg=cfg)
             tp, action, node = mcts.compute_action(
                 Node(
                     state=env,
@@ -72,7 +71,7 @@ def play_move(env, agent, model, eval=False, eps=None, num_sims=None, cfg=cfg):
     return observation, reward, action, done
 
 
-def find_winner(reward, cfg=cfg):
+def find_winner(reward, cfg=None):
     if reward == -1.0:
         return cfg.agents[cfg.env_type][1]
     elif reward == 1.0:
@@ -83,7 +82,7 @@ def find_winner(reward, cfg=cfg):
         raise ValueError(f"Invalid Reward Signal {reward}")
 
 
-def get_base_path(folder_path, num_simulations, elo, cfg=cfg):
+def get_base_path(folder_path, num_simulations, elo, cfg=None):
     elo_bin = (elo // cfg.elo_bins) * cfg.elo_bins
     return f"{folder_path}/{cfg.env_type}/num_sims_{num_simulations}/elo_{elo_bin}/"
 
@@ -94,7 +93,7 @@ def get_game_id(base_path):
     return game_id
 
 
-def get_episode_path(folder_path, num_simulations, elo, reward, cfg=cfg):
+def get_episode_path(folder_path, num_simulations, elo, reward, cfg=None):
     base_path = get_base_path(folder_path, num_simulations, elo, cfg=cfg)
     try:
         game_id = get_game_id(base_path)
@@ -115,7 +114,9 @@ def save_game(
     reward,
     model_elo=0,
     n_moves=0,
-    cfg=cfg,
+    player_to_learn=2,
+    eval=False,
+    cfg=None,
     model_id=0,
 ):
     if not os.path.exists(os.path.dirname(episode_path)):
@@ -130,6 +131,10 @@ def save_game(
             "move_count": n_moves,
             "model_id": model_id,
             "reward": reward,
+            "iteration": (game_id // cfg.episodes_per_epoch)
+            + 1,  # +1 to ensure weights in dataset sampling are non zero
+            "player_to_learn": player_to_learn,
+            "eval": eval,
         },
         index=[game_id],
     )
@@ -139,8 +144,8 @@ def save_game(
         cfg.episodes_df.to_csv(os.path.dirname(base_path) + "/games.csv")
 
 
-def get_model(model_type=None, cfg=cfg):
-    if not model_type:
+def get_model(model_type=None, cfg=None):
+    if model_type is None:
         model_type = cfg.model_type
     if model_type == "mlp":
         return SimpleModel(cfg=cfg)
@@ -148,9 +153,20 @@ def get_model(model_type=None, cfg=cfg):
         return SimpleConvnet(cfg=cfg)
     elif model_type == "ag0_resnet":
         return AlphaGoZeroResnet(cfg=cfg)
+    raise ValueError(f"Unexpected Value for Model Type: {model_type} not supported")
 
 
-def save_model(model, model_elo, avg_moves, epoch, model_id, num_sims, cfg=cfg):
+def save_model(
+    model,
+    model_elo,
+    avg_moves,
+    epoch,
+    model_id,
+    num_sims,
+    policy_loss,
+    value_loss,
+    cfg=None,
+):
     model_save_path = f"{cfg.episode_save_path}/models/{cfg.env_type}_{cfg.model_type}_{epoch}_elo_{model_elo}.pth"
 
     try:
@@ -169,6 +185,8 @@ def save_model(model, model_elo, avg_moves, epoch, model_id, num_sims, cfg=cfg):
             "model_type": cfg.model_type,
             "episodes": epoch * cfg.episodes_per_epoch,
             "num_parameters": model.num_parameters(),
+            "policy_loss": policy_loss,
+            "value_loss": value_loss,
         },
         index=[len(cfg.models_df)],
     )
@@ -176,6 +194,40 @@ def save_model(model, model_elo, avg_moves, epoch, model_id, num_sims, cfg=cfg):
         cfg.models_df = pd.concat([cfg.models_df, new_model])
     except Exception:
         cfg.models_df = new_model
+
+
+def save_eval_result(
+    iteration,
+    elo_random_play,
+    move_count_random_play,
+    elo_random_init,
+    move_count_random_init,
+    model_id,
+    elo_opp,
+    move_count,
+    elo_diff,
+    winrate,
+    cfg=None,
+):
+    new_eval = pd.DataFrame(
+        {
+            "iteration": iteration,
+            "elo_random_play": elo_random_play,
+            "move_count_random_play": move_count_random_play,
+            "elo_random_init": elo_random_init,
+            "move_count_random_init": move_count_random_init,
+            "model_id": model_id,
+            "elo_opp": elo_opp,
+            "move_count": move_count,
+            "elo_diff": elo_diff,
+            "winrate": winrate,
+        },
+        index=[len(cfg.eval_df)],
+    )
+    try:
+        cfg.eval_df = pd.concat([cfg.eval_df, new_eval])
+    except Exception:
+        cfg.eval_df = new_eval
 
 
 def get_elo_diff_from_outcomes(outcomes):
