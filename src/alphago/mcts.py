@@ -9,7 +9,6 @@ import math
 import numpy as np
 import torch
 
-from alphago.config import cfg
 from alphago.env import get_env
 
 import asyncio
@@ -17,9 +16,9 @@ import concurrent.futures
 from typing import Optional
 
 
-def env_get_copy(env, raw_env=None):
+def env_get_copy(env, raw_env=None, cfg=None):
     if raw_env is None:
-        new_env = get_env()
+        new_env = get_env(cfg.env_type)
     else:
         new_env = raw_env
     if cfg.env_type == "connect4":
@@ -43,7 +42,7 @@ def _init_executor():
         _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 
-async def env_get_copy_async(env, env_type: str = cfg.env_type):
+async def env_get_copy_async(env, env_type: str = "", cfg=None):
     """
     Returns a copy of the given src_env, but also manages a future
     that asynchronously prepares a fresh environment for next time.
@@ -94,7 +93,7 @@ class Node:
         multi_agent=False,
     ):
         self.state = state
-        self.initial_state = env_get_copy(state)
+        self.initial_state = env_get_copy(state, cfg=mcts.cfg)
         self.parent = parent
         self.children = {}
         self.action_space_size = self.state.action_space(self.state.agent_selection).n
@@ -216,8 +215,8 @@ class Node:
                 reward = self.state.rewards[self.state.agent_selection]
             except KeyError:
                 reward = 0.0
-            next_state = env_get_copy(self.state)
-            self.state = env_get_copy(self.initial_state)
+            next_state = env_get_copy(self.state, cfg=self.mcts.cfg)
+            self.state = env_get_copy(self.initial_state, cfg=self.mcts.cfg)
             self.children[action] = Node(
                 state=next_state,
                 action=action,
@@ -240,7 +239,7 @@ class Node:
 
 
 class MCTS:
-    def __init__(self, model, eval=False, eps=None, num_sims=None, cfg=cfg):
+    def __init__(self, model, eval=False, eps=None, num_sims=None, cfg=None):
         if not num_sims:
             num_sims = cfg.num_simulations
         if not eps:
@@ -263,7 +262,7 @@ class MCTS:
 
     def compute_action(self, node):
         for sim_num in range(self.num_sims):
-            node.state = env_get_copy(node.initial_state)
+            node.state = env_get_copy(node.initial_state, cfg=self.cfg)
             leaf = node.select()
             if leaf.done:
                 value = leaf.reward * self.reward_multiplier
@@ -295,7 +294,7 @@ class MCTS:
             action = np.random.choice(np.arange(node.action_space_size), p=tree_policy)
         action = np.argmax(tree_policy)
         assert node.valid_actions[action] == 1
-        node.state = env_get_copy(node.initial_state)
+        node.state = env_get_copy(node.initial_state, cfg=self.cfg)
         try:
             node.children[action].parent = None
             node.children[action].env = node.children[action].initial_state
