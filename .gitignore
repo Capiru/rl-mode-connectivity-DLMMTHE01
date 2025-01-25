@@ -3,9 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 data/*
-*/data/*
+*data*/*
 *.pth
 *.pt
+*.DS_Store
 
 # C extensions
 *.so
