@@ -1,7 +1,6 @@
-from alphago.env import get_env
-from alphago.utils import get_model
-from alphago.config import cfg
-from alphago.mcts import MCTS, Node
+from rl.env import get_env
+from rl.utils import get_model
+from rl.mcts import MCTS, Node
 import numpy as np
 import chess as ch
 import torch
@@ -14,11 +13,13 @@ def test_select_best_child():
     assert True
 
 
-def test_backup_depth_1():
+def test_backup_depth_1(cfg):
     cfg.env_type = "connect4"
     cfg.num_simulations = 1
     env = get_env("connect4")
-    mcts = MCTS(get_model(), eval=True, eps=0.3)
+    model = get_model(cfg.model_type, cfg)
+    assert model
+    mcts = MCTS(model=model, eval=True, eps=0.3, cfg=cfg)
     node = Node(
         state=env,
         mcts=mcts,
@@ -33,11 +34,11 @@ def test_backup_depth_1():
     assert node.number_visits == 1
 
 
-def test_backup_depth_2():
+def test_backup_depth_2(cfg):
     cfg.env_type = "connect4"
     cfg.num_simulations = 1
     env = get_env("connect4")
-    mcts = MCTS(get_model(), eval=True, eps=0.3)
+    mcts = MCTS(get_model(cfg=cfg), eval=True, eps=0.3, cfg=cfg)
     node = Node(
         state=env,
         mcts=mcts,
@@ -58,11 +59,11 @@ def test_backup_depth_2():
     assert leaf_2nd.number_visits == 1
 
 
-def test_backup_depth_3():
+def test_backup_depth_3(cfg):
     cfg.env_type = "connect4"
     cfg.num_simulations = 1
     env = get_env("connect4")
-    mcts = MCTS(get_model(), eval=True, eps=0.3)
+    mcts = MCTS(get_model(cfg=cfg), eval=True, eps=0.3, cfg=cfg)
     node = Node(
         state=env,
         mcts=mcts,
@@ -89,7 +90,7 @@ def test_backup_depth_3():
     assert leaf_3rd.number_visits == 1
 
 
-def test_win_in_one_c4():
+def test_win_in_one_c4(cfg):
     cfg.env_type = "connect4"
     cfg.num_simulations = 150
     env = get_env("connect4")
@@ -102,7 +103,7 @@ def test_win_in_one_c4():
     env.step(2)
     env.step(6)
 
-    mcts = MCTS(get_model(), eval=True, eps=0.3)
+    mcts = MCTS(get_model(cfg=cfg), eval=True, eps=0.3, cfg=cfg)
     mate_in_1_node = Node(
         state=env,
         mcts=mcts,
@@ -116,7 +117,7 @@ def test_win_in_one_c4():
     assert action == 3
 
 
-def test_win_in_two_c4():
+def test_win_in_two_c4(cfg):
     cfg.env_type = "connect4"
     cfg.num_simulations = 400
     env = get_env("connect4")
@@ -144,7 +145,7 @@ def test_win_in_two_c4():
     env.step(4)
     env.step(6)
 
-    mcts = MCTS(get_model(), eval=True, eps=0.3)
+    mcts = MCTS(get_model(cfg=cfg), eval=True, eps=0.3, cfg=cfg)
     mate_in_2_node = Node(
         state=env,
         mcts=mcts,
@@ -159,7 +160,7 @@ def test_win_in_two_c4():
     assert action == 1 or action == 4
 
 
-def test_defense_in_one_c4():
+def test_defense_in_one_c4(cfg):
     cfg.env_type = "connect4"
     cfg.num_simulations = 200
     env = get_env("connect4")
@@ -189,7 +190,7 @@ def test_defense_in_one_c4():
 
     env.step(5)
 
-    mcts = MCTS(get_model(), eval=True, eps=0.3)
+    mcts = MCTS(get_model(cfg=cfg), eval=True, eps=0.3, cfg=cfg)
     mate_in_2_node = Node(
         state=env,
         mcts=mcts,
@@ -212,11 +213,11 @@ class TestModel:
         return self.forward(x)
 
 
-def test_value_policy_networks():
+def test_value_policy_networks(cfg):
     cfg.env_type = "connect4"
     cfg.num_simulations = 200
     env = get_env("connect4")
-    mcts = MCTS(TestModel(), eval=True, eps=0.3)
+    mcts = MCTS(TestModel(), eval=True, eps=0.3, cfg=cfg)
     mate_in_2_node = Node(
         state=env,
         mcts=mcts,
@@ -225,7 +226,7 @@ def test_value_policy_networks():
     assert action == 5
 
 
-def test_mate_in_one(render=False):
+def test_mate_in_one(cfg, render=False):
     cfg.env_type = "chess"
     cfg.num_simulations = 600
     cfg.eps = 0
@@ -236,7 +237,7 @@ def test_mate_in_one(render=False):
     env.board.push_uci("f8c5")
     env.board.push_uci("d1h5")
     env.board.push_uci("b8c6")
-    mcts = MCTS(get_model(), eval=True, eps=0.3)
+    mcts = MCTS(get_model(cfg=cfg), eval=True, eps=0.3, cfg=cfg)
     mate_in_1_node = Node(
         state=env,
         mcts=mcts,
@@ -253,14 +254,14 @@ def test_mate_in_one(render=False):
     assert action == 4390
 
 
-def test_mate_in_two(render=False):
+def test_mate_in_two(cfg, render=False):
     puzzle_fen = "1k6/ppp5/8/8/4Qn2/5q2/5P1P/6K1 b - - 2 21"
     cfg.env_type = "chess"
     cfg.num_simulations = 1600
     env = get_env("chess")
     env.board = ch.Board(puzzle_fen)
     env.agent_selection = env._agent_selector.next()
-    mcts = MCTS(get_model(), eval=False, eps=0.1)
+    mcts = MCTS(get_model(cfg=cfg), eval=False, eps=0.1, cfg=cfg)
     mate_in_2_node = Node(
         state=env,
         mcts=mcts,

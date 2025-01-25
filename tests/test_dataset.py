@@ -1,10 +1,10 @@
-from alphago.data import GameHistoryDataset
+from rl.data import GameHistoryDataset
 import pandas as pd
 
 
 def test_dataset(cfg):
     cfg.episodes_df = pd.read_csv("tests/data/games.csv")
-    dataset = GameHistoryDataset(cfg, shuffle=False)
+    dataset = GameHistoryDataset(cfg=cfg, shuffle=False)
     ## Game 0 - Player 0 wins
     assert len(dataset) == 12
     _, _, reward = dataset.__getitem__(0)

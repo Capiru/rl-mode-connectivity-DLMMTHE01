@@ -1,5 +1,5 @@
 from mode_connectivity.interpolate import interpolate_models
-from alphago.utils import get_model
+from rl.utils import get_model
 import torch
 
 
