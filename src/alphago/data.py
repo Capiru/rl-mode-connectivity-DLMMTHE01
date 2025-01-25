@@ -1,8 +1,7 @@
 ### Dataset
 import torch
 from torch.utils.data import Dataset
-from alphago.config import cfg
-
+from alphago.schedulers import buffer_size_scheduler
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,19 +11,19 @@ logger.setLevel("INFO")
 class GameHistoryDataset(Dataset):
     def __init__(
         self,
-        cfg=cfg,
+        cfg,
         min_elo=0,
         model_id: int = 0,
         smoke_test=False,
         drop_zero_rewards=True,
         shuffle=True,
+        eval=False,
     ):
+        self.cfg = cfg
         self.min_elo = min_elo
         self.smoke_test = smoke_test
-        self.folder_path = (
-            f"{cfg.episode_save_path}/{cfg.env_type}/num_sims_{cfg.num_simulations}/"
-        )
-        self.df = cfg.episodes_df.copy()
+        self.folder_path = f"{self.cfg.episode_save_path}/{self.cfg.env_type}/num_sims_{self.cfg.num_simulations}/"
+        self.df = self.cfg.episodes_df.copy()
 
         if drop_zero_rewards:
             self.df = self.df.loc[self.df["reward"] != 0]
@@ -32,16 +31,20 @@ class GameHistoryDataset(Dataset):
         self.df = self.df.loc[self.df["elo"] >= min_elo]
         if model_id:
             self.df = self.df.loc[self.df["model_id"] == model_id]
+        self.df = self.df.loc[self.df["eval"] == eval]
         df_sorted = self.df.sort_index()
-        if cfg.episodes_replay_buffer_size:
-            self.df = df_sorted.tail(cfg.episodes_replay_buffer_size)
+        if self.cfg.episodes_replay_buffer_size:
+            self.df = df_sorted.tail(
+                buffer_size_scheduler(episodes=len(self.df), cfg=self.cfg)
+            )
         self.game_history_list = self.df["game"]
 
         self.df.reset_index(drop=True, inplace=True)
         self.df["episode"] = self.df.index
 
-        if "go" in cfg.env_type:
+        if "go" in self.cfg.env_type:
             self.df["move_count"] = self.df["move_count"] - 2
+            self.df = self.df.loc[self.df["move_count"] > 0]
 
         self.episode_replay_df = self.df.loc[
             self.df.index.repeat(self.df["move_count"])
@@ -50,10 +53,22 @@ class GameHistoryDataset(Dataset):
             level=0
         ).cumcount()
         self.episode_replay_df.reset_index(drop=True, inplace=True)
-        if shuffle:
-            self.episode_replay_df = self.episode_replay_df.sample(frac=1).reset_index(
-                drop=True
+        # If episodes are being saved for only one or both policies
+        self.episode_replay_df = self.episode_replay_df[
+            (
+                (self.episode_replay_df["player_to_learn"] == 0)
+                & (self.episode_replay_df["timestep"] % 2 == 0)
             )
+            | (
+                (self.episode_replay_df["player_to_learn"] == 1)
+                & (self.episode_replay_df["timestep"] % 2 == 1)
+            )
+            | (self.episode_replay_df["player_to_learn"] == 2)
+        ]
+        if shuffle:
+            self.episode_replay_df = self.episode_replay_df.sample(
+                frac=self.cfg.sampling_ratio, weights="iteration"
+            ).reset_index(drop=True)
 
     def __len__(self):
         if self.smoke_test:
@@ -61,7 +76,7 @@ class GameHistoryDataset(Dataset):
         return len(self.episode_replay_df)
 
     def _get_discounted_reward(self, reward, timestep, episode_len):
-        return reward * cfg.discount_factor ** (episode_len - timestep - 1)
+        return reward * self.cfg.discount_factor ** (episode_len - timestep - 1)
 
     def _did_player_0_win(self, timestep):
         return 1 if timestep % 2 == 0 else -1
