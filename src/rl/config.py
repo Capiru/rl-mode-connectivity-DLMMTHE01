@@ -71,6 +71,8 @@ class Settings(BaseSettings):
             "num_parameters",
             "policy_loss",
             "value_loss",
+            "eval_policy_loss",
+            "eval_value_loss",
         ]
     )
     episodes_df: pd.DataFrame = pd.DataFrame(

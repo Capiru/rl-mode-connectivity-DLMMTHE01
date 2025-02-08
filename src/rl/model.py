@@ -22,6 +22,9 @@ class SimpleModel(nn.Module):
         self.policy_h = nn.Linear(mlp_size, cfg.action_size[cfg.env_type])
         self.value_h = nn.Linear(mlp_size, 1)
 
+    def num_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
     def forward(self, x):
         if len(x.shape) > 3:
             x = torch.flatten(x, 1)

@@ -18,6 +18,7 @@ class GameHistoryDataset(Dataset):
         drop_zero_rewards=True,
         shuffle=True,
         eval=False,
+        only_last_n: int = 0,
     ):
         self.cfg = cfg
         self.min_elo = min_elo
@@ -33,10 +34,12 @@ class GameHistoryDataset(Dataset):
             self.df = self.df.loc[self.df["model_id"] == model_id]
         self.df = self.df.loc[self.df["eval"] == eval]
         df_sorted = self.df.sort_index()
-        if self.cfg.episodes_replay_buffer_size:
+        if self.cfg.episodes_replay_buffer_size and not eval:
             self.df = df_sorted.tail(
                 buffer_size_scheduler(episodes=len(self.df), cfg=self.cfg)
             )
+        elif eval and only_last_n > 0:
+            self.df = df_sorted.tail(only_last_n)
         self.game_history_list = self.df["game"]
 
         self.df.reset_index(drop=True, inplace=True)

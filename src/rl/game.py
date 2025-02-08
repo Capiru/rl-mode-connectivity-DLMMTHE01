@@ -14,6 +14,7 @@ from rl.utils import (
     save_model,
     save_eval_result,
 )
+from rl.eval import eval_model
 from rl.data import GameHistoryDataset
 from rl.train import train_model
 from rl.schedulers import lr_scheduler, eps_scheduler
@@ -243,16 +244,36 @@ def tournament_match(
     return [wins, dnfs, losses], ply_total / (i + 1)
 
 
-def eval_tournament(models_df, model, iteration, n_games=100, num_sims=None, cfg=None):
+def eval_losses(model, eval_episodes: int, iteration=0, cfg=None):
+    dataset = GameHistoryDataset(cfg=cfg, eval=True, only_last_n=eval_episodes)
+    _, (policy_loss, value_loss) = eval_model(
+        model, dataset=dataset, epochs=1, iteration=iteration, cfg=cfg
+    )
+    print(f"Eval - Policy Loss {policy_loss:.4f} - Value Loss {value_loss:.4f}")
+    return policy_loss, value_loss
+
+
+def eval_tournament(
+    models_df,
+    model,
+    iteration,
+    model_id=0,
+    n_games=100,
+    num_sims=None,
+    static_eval=False,
+    cfg=None,
+):
     if not num_sims:
         num_sims = cfg.num_simulations
     # Test versus Random Agent
+    total_eval_games = 0
     outcomes, avg_moves = tournament_match(
         {cfg.agents[cfg.env_type][0]: model, cfg.agents[cfg.env_type][1]: None},
         n_games=n_games,
         num_sims=num_sims,
         cfg=cfg,
     )
+    total_eval_games += n_games
     elo_diff = get_elo_diff_from_outcomes(outcomes)
 
     actual_elo = elo_diff
@@ -267,6 +288,7 @@ def eval_tournament(models_df, model, iteration, n_games=100, num_sims=None, cfg
         num_sims=num_sims,
         cfg=cfg,
     )
+    total_eval_games += n_games
     elo_diff_nn = get_elo_diff_from_outcomes(outcomes_nn)
     print(
         f"Elo diff from Random {elo_diff} Avg. Moves {avg_moves} - From Randomly Initialized Net {elo_diff_nn} Avg. Moves {avg_moves_nn}"
@@ -276,21 +298,21 @@ def eval_tournament(models_df, model, iteration, n_games=100, num_sims=None, cfg
     sorted_models = models_df.loc[models_df["elo"] >= actual_elo].sort_values(
         by=["elo", "epoch"], ascending=[True, False]
     )
-    print(sorted_models)
+    # print(sorted_models)
     save_eval_result(
         iteration=iteration,
         elo_random_play=elo_diff,
         move_count_random_play=avg_moves,
         elo_random_init=elo_diff_nn,
         move_count_random_init=avg_moves_nn,
-        model_id=0,
+        model_id=model_id,
         elo_opp=0,
         move_count=0,
         elo_diff=0,
         winrate=outcomes[1] / sum(outcomes),
         cfg=cfg,
     )
-    if actual_elo >= 35:
+    if actual_elo >= 35 and not static_eval:
         for i in range(50):
             if len(sorted_models) < 1:
                 break
@@ -308,6 +330,7 @@ def eval_tournament(models_df, model, iteration, n_games=100, num_sims=None, cfg
                 num_sims=num_sims,
                 cfg=cfg,
             )
+            total_eval_games += n_games
             elo_diff_new = get_elo_diff_from_outcomes(outcomes_new)
 
             actual_elo = sorted_models.iloc[0]["elo"] + elo_diff_new
@@ -317,7 +340,7 @@ def eval_tournament(models_df, model, iteration, n_games=100, num_sims=None, cfg
                 move_count_random_play=avg_moves,
                 elo_random_init=elo_diff_nn,
                 move_count_random_init=avg_moves_nn,
-                model_id=0,
+                model_id=model_id,
                 elo_opp=sorted_models.iloc[0]["elo"],
                 move_count=avg_moves_new,
                 elo_diff=elo_diff_new,
@@ -331,12 +354,15 @@ def eval_tournament(models_df, model, iteration, n_games=100, num_sims=None, cfg
                 sorted_models = sorted_models.loc[sorted_models["elo"] >= actual_elo]
                 del eval_model
                 gc.collect()
+    policy_loss, value_loss = eval_losses(
+        model=model, eval_episodes=total_eval_games, iteration=iteration, cfg=cfg
+    )
     cfg.eval_df.to_csv(
         cfg.episode_save_path
         + f"/{cfg.env_type}/num_sims_{cfg.num_simulations}"
         + "/eval.csv"
     )
-    return actual_elo, outcomes, avg_moves
+    return actual_elo, outcomes, avg_moves, (policy_loss, value_loss)
 
 
 def generate_one_game(
@@ -434,7 +460,7 @@ def generate_games(
                 )
 
                 pbar.set_description(
-                    f"Self-Play - Game {i+1} - Wins {wins} - Dnfs {dnfs} - Losses {losses} - Avg. Moves {ply_total/(i+1)}"
+                    f"Model{model_id}- Self-Play - Game {i+1} - Wins {wins} - Dnfs {dnfs} - Losses {losses} - Avg. Moves {ply_total/(i+1)}"
                 )
                 pbar.update(1)
     else:
@@ -491,7 +517,7 @@ def self_play(cfg, max_patience=5):
         # model.load_state_dict(torch.load("best_model.pth"))
         # model = torch.load("best_model.pth")
         # print("Previous best model loaded")
-        model_elo, outcomes, avg_moves = eval_tournament(
+        model_elo, outcomes, avg_moves, eval_losses = eval_tournament(
             cfg.models_df, model, iteration=0, n_games=eval_games, cfg=cfg
         )
         print(
@@ -518,6 +544,8 @@ def self_play(cfg, max_patience=5):
             num_sims=cfg.num_simulations,
             policy_loss=0,
             value_loss=0,
+            eval_policy_loss=eval_losses[0],
+            eval_value_loss=eval_losses[1],
             cfg=cfg,
         )
 
@@ -563,7 +591,7 @@ def self_play(cfg, max_patience=5):
 
         if i % cfg.eval_every_n_epochs == 0 and i > 0:
             model.eval()
-            model_elo, outcomes, avg_moves = eval_tournament(
+            model_elo, outcomes, avg_moves, eval_losses = eval_tournament(
                 cfg.models_df, model, iteration=i, n_games=eval_games, cfg=cfg
             )
             print(
@@ -592,6 +620,8 @@ def self_play(cfg, max_patience=5):
                 num_sims=cfg.num_simulations,
                 policy_loss=policy_loss,
                 value_loss=value_loss,
+                eval_policy_loss=eval_losses[0],
+                eval_value_loss=eval_losses[1],
                 cfg=cfg,
             )
             cfg.models_df.to_csv(

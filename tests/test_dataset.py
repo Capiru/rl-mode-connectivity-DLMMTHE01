@@ -42,3 +42,11 @@ def test_shuffle(cfg):
     assert not shuffled_dataset.episode_replay_df["episode"].equals(
         dataset.episode_replay_df["episode"]
     )
+
+
+def test_model_id(cfg):
+    cfg.episodes_df = pd.read_csv("tests/data/games.csv")
+    dataset = GameHistoryDataset(cfg=cfg, shuffle=False, model_id=0)
+    assert len(dataset) == 12
+    dataset_model_id1 = GameHistoryDataset(cfg=cfg, shuffle=False, model_id=1)
+    assert len(dataset_model_id1) == 0

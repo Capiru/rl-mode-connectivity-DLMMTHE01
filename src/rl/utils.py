@@ -165,6 +165,8 @@ def save_model(
     num_sims,
     policy_loss,
     value_loss,
+    eval_policy_loss,
+    eval_value_loss,
     cfg=None,
 ):
     model_save_path = f"{cfg.episode_save_path}/models/{cfg.env_type}_{cfg.model_type}_{epoch}_elo_{model_elo}.pth"
@@ -187,6 +189,8 @@ def save_model(
             "num_parameters": model.num_parameters(),
             "policy_loss": policy_loss,
             "value_loss": value_loss,
+            "eval_policy_loss": eval_policy_loss,
+            "eval_value_loss": eval_value_loss,
         },
         index=[len(cfg.models_df)],
     )
