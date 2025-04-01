@@ -5,27 +5,39 @@ from rl.config import Settings
 from rl.data import GameHistoryDataset
 from mode_connectivity.interpolate import interpolate_models
 from rl.schedulers import lr_scheduler, eps_scheduler
-import copy
+from visualizations.img import model_iterations_plot, interpolation_plot
 
 import pandas as pd
 import numpy as np
+import torch
 
-import matplotlib.pyplot as plt
 
 import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
 
+"""
+Experiment Workflow:
+1. Define in which fractional epochs the model should be split
+2. Initialize vars for each epoch
+3. If current epoch is in the 'split_epoch_list', duplicate model and continue training.
 
-def lmc_connect4(cfg=None):
-    split_epoch_list = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.4, 0.5, 0.7]
+"""
+
+
+def unconnected_connect4(split_epoch_list=[0, 0.5], cfg=None):
+    # 1. Define which fractional epochs to split
+
+    # We start with the first on the list
     split_epoch = split_epoch_list.pop(0)
     epoch_split = {}
+
     for n_sims in [0]:
+        # Vars Initialization
         model_id = 0
         model_ids = [0]
-        model = [get_model(cfg=cfg)]
+        model = [get_model(model_type=cfg.model_type, cfg=cfg)]
         learning_rate = cfg.learning_rate
         eps = cfg.eps
 
@@ -74,6 +86,7 @@ def lmc_connect4(cfg=None):
         model_losses = [eval_losses]
         split = False
         for i in range(int(cfg.max_n_episodes // cfg.episodes_per_epoch)):
+            # Each epoch we update epsilon and the learning rate based on the given scheduler
             eps, learning_rate = eps_scheduler(i, cfg), lr_scheduler(i, cfg)
             cfg.models_df.to_csv(
                 f"{cfg.episode_save_path}/{cfg.env_type}/num_sims_{cfg.num_simulations}"
@@ -83,12 +96,12 @@ def lmc_connect4(cfg=None):
                 i / int(cfg.max_n_episodes // cfg.episodes_per_epoch) >= split_epoch
                 and not split
             ):
-                # split models
+                # 3. Instead of splitting, we randomly initialize a new model
 
                 model_ids.append(len(model_ids))
                 model_elo.append(model_elo[0])
                 model_losses.append(eval_losses)
-                model.append(copy.deepcopy(model[0]))
+                model.append(get_model(model_type=cfg.model_type, cfg=cfg))
                 models.append(
                     {
                         cfg.agents[cfg.env_type][0]: model[-1],
@@ -104,9 +117,18 @@ def lmc_connect4(cfg=None):
                     split_epoch = split_epoch_list.pop(0)
                 except IndexError:
                     split = True
+                # We do a sanity check if the models were initialized correctly
+                params_model_1 = [param.clone() for param in model[0].parameters()]
+                params_model_2 = [param.clone() for param in model[-1].parameters()]
+                for param_1, param_2 in zip(params_model_1, params_model_2):
+                    assert not torch.equal(param_1, param_2)
+                print("Models are initialized differently")
+
+            # 4. Start epoch logic for each model_id being trained
             for m_id in model_ids:
                 print(f"Epoch {i} - Model ID {m_id}")
                 model[m_id].eval()
+                # 4.a Generate a batch of games
                 generate_games(
                     models[m_id],
                     num_games=cfg.episodes_per_epoch,
@@ -117,8 +139,10 @@ def lmc_connect4(cfg=None):
                     cfg=cfg,
                 )
 
+                # 4.b Initialize Dataset, only loading data from a given model_id
                 dataset = GameHistoryDataset(cfg=cfg, model_id=m_id)
 
+                # 4.c Train the model with the dataset
                 model[m_id], losses = train_model(
                     model[m_id],
                     dataset,
@@ -173,7 +197,7 @@ def lmc_connect4(cfg=None):
                 )
 
                 if m_id > 0:
-                    n_points = 10
+                    n_points = 5
                     alpha_space = np.linspace(
                         0.1, 0.9, n_points
                     )  # We start the linspace not at 0 and not until 1, since we already have the eval for those.
@@ -221,21 +245,11 @@ def lmc_connect4(cfg=None):
                         + f"/lmc_{str(i)}_epoch_split_{epoch_split[m_id]}.csv"
                     )
                     # Unnormalized Plots
-                    plt.clf()
-                    plot_df.plot(x="alpha", y="elo", kind="line")
-                    plt.savefig(
-                        f"/Users/g.silva.2/Documents/thesis/rl-mode-connectivity-DLMMTHE01/experiments_data/imgs/interpolation_elo_{i}_epoch_split_{epoch_split[m_id]}.png"
+                    interpolation_plot(plot_df, "elo", i, epoch_split[m_id], cfg)
+                    interpolation_plot(
+                        plot_df, "policy_loss", i, epoch_split[m_id], cfg
                     )
-                    plt.clf()
-                    plot_df.plot(x="alpha", y="policy_loss", kind="line")
-                    plt.savefig(
-                        f"/Users/g.silva.2/Documents/thesis/rl-mode-connectivity-DLMMTHE01/experiments_data/imgs/interpolation_ploss_{i}_epoch_split_{epoch_split[m_id]}.png"
-                    )
-                    plt.clf()
-                    plot_df.plot(x="alpha", y="value_loss", kind="line")
-                    plt.savefig(
-                        f"/Users/g.silva.2/Documents/thesis/rl-mode-connectivity-DLMMTHE01/experiments_data/imgs/interpolation_vloss_{i}_epoch_split_{epoch_split[m_id]}.png"
-                    )
+                    interpolation_plot(plot_df, "value_loss", i, epoch_split[m_id], cfg)
 
                     # Normalized Plots
                     plot_df["elo"] = plot_df["elo"] / np.max(plot_df["elo"])
@@ -246,31 +260,27 @@ def lmc_connect4(cfg=None):
                     plot_df["value_loss"] = plot_df["value_loss"] / np.max(
                         plot_df["value_loss"]
                     )
-                    plt.clf()
-                    plot_df.plot(x="alpha", y="elo", kind="line")
-                    plt.savefig(
-                        f"/Users/g.silva.2/Documents/thesis/rl-mode-connectivity-DLMMTHE01/experiments_data/imgs/n_interpolation_elo_{i}_epoch_split_{epoch_split[m_id]}.png"
+
+                    interpolation_plot(plot_df, "elo", i, epoch_split[m_id], cfg)
+                    interpolation_plot(
+                        plot_df, "policy_loss", i, epoch_split[m_id], cfg
                     )
-                    plt.clf()
-                    plot_df.plot(x="alpha", y="policy_loss", kind="line")
-                    plt.savefig(
-                        f"/Users/g.silva.2/Documents/thesis/rl-mode-connectivity-DLMMTHE01/experiments_data/imgs/n_interpolation_ploss_{i}_epoch_split_{epoch_split[m_id]}.png"
-                    )
-                    plt.clf()
-                    plot_df.plot(x="alpha", y="value_loss", kind="line")
-                    plt.savefig(
-                        f"/Users/g.silva.2/Documents/thesis/rl-mode-connectivity-DLMMTHE01/experiments_data/imgs/n_interpolation_vloss_{i}_epoch_split_{epoch_split[m_id]}.png"
-                    )
+                    interpolation_plot(plot_df, "value_loss", i, epoch_split[m_id], cfg)
+
+                model_iterations_plot(m_id, cfg=cfg)
 
 
 if __name__ == "__main__":
     cfg_lmc_c4 = Settings(
-        max_n_episodes=100000,
+        max_n_episodes=150000,
         env_type="connect4",
         model_type="mlp",
         temperature=1.0,
         num_simulations=0,
         puct_coefficient=1.0,
-        episode_save_path="./experiments/lmc_c4_0/",
+        episodes_per_epoch=1000,
+        episode_save_path="./experiments/unconnected_c4_long/",
+        episodes_replay_buffer_size=2000,
+        eval_games=100,
     )
-    lmc_connect4(cfg=cfg_lmc_c4)
+    unconnected_connect4(cfg=cfg_lmc_c4)
