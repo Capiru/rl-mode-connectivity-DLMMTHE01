@@ -18,6 +18,7 @@ from rl.eval import eval_model
 from rl.data import GameHistoryDataset
 from rl.train import train_model
 from rl.schedulers import lr_scheduler, eps_scheduler
+from visualizations.img import model_iterations_plot
 
 from IPython.display import clear_output
 import pandas as pd
@@ -26,6 +27,7 @@ import copy
 
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from time import perf_counter
 
 import logging
 
@@ -298,6 +300,7 @@ def eval_tournament(
     sorted_models = models_df.loc[models_df["elo"] >= actual_elo].sort_values(
         by=["elo", "epoch"], ascending=[True, False]
     )
+    sorted_models = sorted_models.loc[sorted_models["model_id"] == model_id]
     # print(sorted_models)
     save_eval_result(
         iteration=iteration,
@@ -651,8 +654,11 @@ def self_play(cfg, max_patience=5):
             #             pass
             #         models = {cfg.agents[cfg.env_type][0]:model,cfg.agents[cfg.env_type][1]:model}
             gc.collect()
+            model_iterations_plot(0, cfg=cfg)
 
 
 if __name__ == "__main__":
     # asyncio.run()
+    start_timer = perf_counter()
     self_play(cfg=Settings())
+    print("Time taken:", perf_counter() - start_timer)

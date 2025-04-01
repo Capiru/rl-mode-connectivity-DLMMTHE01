@@ -12,7 +12,7 @@ class GameHistoryDataset(Dataset):
     def __init__(
         self,
         cfg,
-        min_elo=0,
+        min_elo=-5000,
         model_id: int = 0,
         smoke_test=False,
         drop_zero_rewards=True,
@@ -45,6 +45,7 @@ class GameHistoryDataset(Dataset):
         self.df.reset_index(drop=True, inplace=True)
         self.df["episode"] = self.df.index
 
+        # In Go, we might overfit high rewards into passing moves.
         if "go" in self.cfg.env_type:
             self.df["move_count"] = self.df["move_count"] - 2
             self.df = self.df.loc[self.df["move_count"] > 0]
@@ -68,6 +69,8 @@ class GameHistoryDataset(Dataset):
             )
             | (self.episode_replay_df["player_to_learn"] == 2)
         ]
+        # Avoid iteration being 0 due to weight sampling
+        self.episode_replay_df["iteration"] += 1
         if shuffle:
             self.episode_replay_df = self.episode_replay_df.sample(
                 frac=self.cfg.sampling_ratio, weights="iteration"

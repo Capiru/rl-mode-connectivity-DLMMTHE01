@@ -11,6 +11,14 @@ data/*
 # C extensions
 *.so
 
+# Images
+imgs/
+
+# Experiments
+experiments/
+!src/experiments/
+calibration/
+
 # Distribution / packaging
 .Python
 build/

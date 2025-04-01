@@ -1,15 +1,18 @@
+from rl.utils import get_model
+
+
 def interpolate_models(model_1, model_2, alpha: float = 0.0):
     params_model_1 = [param.clone() for param in model_1.parameters()]
     params_model_2 = [param.clone() for param in model_2.parameters()]
 
     # Make sure models have the same architecture
     assert isinstance(model_1, type(model_2))
-    interpolated_model = type(model_1)(cfg=model_1.cfg)
+    interpolated_model = get_model(model_type=model_1.cfg.model_type, cfg=model_1.cfg)
     params_interpolated = [
         alpha * param1 + (1 - alpha) * param2
         for param1, param2 in zip(params_model_1, params_model_2)
     ]
-
+    assert len(params_interpolated) == len(list(interpolated_model.parameters()))
     for param in interpolated_model.parameters():
         param.data = params_interpolated.pop(0)
     return interpolated_model

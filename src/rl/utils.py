@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.distributions import Categorical
 
 from rl.mcts import MCTS, Node
-from rl.model import SimpleConvnet, SimpleModel, AlphaGoZeroResnet
+from rl.model import SimpleConvnet, SimpleModel, AlphaGoZeroResnet, MODEL_SIZES
 
 import pandas as pd
 import numpy as np
@@ -145,14 +145,17 @@ def save_game(
 
 
 def get_model(model_type=None, cfg=None):
+    num_neurons = MODEL_SIZES[cfg.model_size]["num_neurons"]
+    n_layers = MODEL_SIZES[cfg.model_size]["n_layers"]
+
     if model_type is None:
         model_type = cfg.model_type
     if model_type == "mlp":
-        return SimpleModel(cfg=cfg)
+        return SimpleModel(cfg=cfg, num_neurons=num_neurons, n_layers=n_layers)
     elif model_type == "convnet":
-        return SimpleConvnet(cfg=cfg)
+        return SimpleConvnet(cfg=cfg, num_neurons=num_neurons, n_layers=n_layers)
     elif model_type == "ag0_resnet":
-        return AlphaGoZeroResnet(cfg=cfg)
+        return AlphaGoZeroResnet(cfg=cfg, num_neurons=num_neurons, n_layers=n_layers)
     raise ValueError(f"Unexpected Value for Model Type: {model_type} not supported")
 
 

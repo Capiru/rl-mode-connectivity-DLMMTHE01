@@ -4,23 +4,35 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+MODEL_SIZES = {
+    "small": {"n_layers": 2, "num_neurons": 32},
+    "medium": {"n_layers": 3, "num_neurons": 64},
+    "large": {"n_layers": 3, "num_neurons": 128},
+    "xlarge": {"n_layers": 5, "num_neurons": 256},
+}
+
 
 class SimpleModel(nn.Module):
     def __init__(
         self,
-        mlp_size=1024,
-        n_layers=8,
+        num_neurons=128,
+        n_layers=5,
         cfg=None,
     ) -> None:
         super().__init__()
         self.cfg = cfg
-        self.input_l = nn.Linear(math.prod(cfg.obs_size[cfg.env_type]), mlp_size)
+        self.num_neurons = num_neurons * 4
+        self.n_layers = n_layers * 2
+
+        self.input_l = nn.Linear(
+            math.prod(cfg.obs_size[cfg.env_type]), self.num_neurons
+        )
         self.layers = nn.ModuleDict()
-        self.n_layers = n_layers
+
         for i in range(self.n_layers):
-            self.layers[f"lin_{i}"] = nn.Linear(mlp_size, mlp_size)
-        self.policy_h = nn.Linear(mlp_size, cfg.action_size[cfg.env_type])
-        self.value_h = nn.Linear(mlp_size, 1)
+            self.layers[f"lin_{i}"] = nn.Linear(self.num_neurons, self.num_neurons)
+        self.policy_h = nn.Linear(self.num_neurons, cfg.action_size[cfg.env_type])
+        self.value_h = nn.Linear(self.num_neurons, 1)
 
     def num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -45,7 +57,7 @@ class SimpleModel(nn.Module):
 class SimpleConvnet(nn.Module):
     def __init__(
         self,
-        mlp_size=64,
+        num_neurons=32,
         n_layers=8,
         cfg=None,
     ) -> None:
@@ -54,16 +66,24 @@ class SimpleConvnet(nn.Module):
         a, b, c = cfg.obs_size[cfg.env_type]
         self.layers = nn.ModuleDict()
         self.n_layers = n_layers
-        self.conv1 = nn.Conv2d(c, 192, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(192, 96, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(96, 48, kernel_size=3, padding=1)
-        self.conv4 = nn.Conv2d(48, 32, kernel_size=3, padding=1)
-        self.conv5 = nn.Conv2d(32, 32, kernel_size=3, padding=1)
-        self.mlp_input = nn.Linear(a * b * 32, mlp_size)
-        self.mlp1 = nn.Linear(mlp_size, mlp_size)
-        self.mlp2 = nn.Linear(mlp_size, mlp_size)
-        self.policy_h = nn.Linear(mlp_size, cfg.action_size[cfg.env_type])
-        self.value_h = nn.Linear(mlp_size, 1)
+        self.conv1 = nn.Conv2d(c, num_neurons, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(num_neurons, num_neurons * 2, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(
+            num_neurons * 2, num_neurons * 3, kernel_size=3, padding=1
+        )
+        self.conv4 = nn.Conv2d(
+            num_neurons * 3, num_neurons * 4, kernel_size=3, padding=1
+        )
+        self.conv5 = nn.Conv2d(
+            num_neurons * 4, num_neurons * 4, kernel_size=3, padding=1
+        )
+        self.mlp_input = nn.Linear(a * b * num_neurons * 4, num_neurons)
+        self.mlp1 = nn.Linear(num_neurons, num_neurons)
+        self.mlp2 = nn.Linear(num_neurons, num_neurons)
+
+        # Simple Head Layers
+        self.policy_h = nn.Linear(num_neurons, cfg.action_size[cfg.env_type])
+        self.value_h = nn.Linear(num_neurons, 1)
 
     def num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -96,6 +116,7 @@ class AlphaGoZeroResnet(nn.Module):
     def __init__(
         self,
         n_layers=5,
+        num_neurons=256,
         cfg=None,
     ) -> None:
         super().__init__()
@@ -103,24 +124,36 @@ class AlphaGoZeroResnet(nn.Module):
         a, b, c = cfg.obs_size[cfg.env_type]
         self.layers = nn.ModuleDict()
         self.n_layers = n_layers
-        self.conv1 = nn.Conv2d(c, 256, kernel_size=3, padding=1)
-        self.batch_norm1 = nn.BatchNorm2d(256)
+        self.num_neurons = num_neurons
+
+        # Input Layer
+        self.conv1 = nn.Conv2d(c, self.num_neurons, kernel_size=3, padding=1)
+        self.batch_norm1 = nn.BatchNorm2d(self.num_neurons)
+        # Add Residual Blocks to layers ModuleDict
         for i in range(self.n_layers):
-            self.layers[f"conv_{i}_1"] = nn.Conv2d(256, 256, kernel_size=3, padding=1)
-            self.layers[f"bn_{i}_1"] = nn.BatchNorm2d(256)
+            self.layers[f"conv_{i}_1"] = nn.Conv2d(
+                self.num_neurons, self.num_neurons, kernel_size=3, padding=1
+            )
+            self.layers[f"bn_{i}_1"] = nn.BatchNorm2d(self.num_neurons)
             self.layers[f"dout_{i}_1"] = nn.Dropout(p=cfg.dropout)
-            self.layers[f"conv_{i}_2"] = nn.Conv2d(256, 256, kernel_size=3, padding=1)
-            self.layers[f"bn_{i}_2"] = nn.BatchNorm2d(256)
+            self.layers[f"conv_{i}_2"] = nn.Conv2d(
+                self.num_neurons, self.num_neurons, kernel_size=3, padding=1
+            )
+            self.layers[f"bn_{i}_2"] = nn.BatchNorm2d(self.num_neurons)
             self.layers[f"dout_{i}_2"] = nn.Dropout(p=cfg.dropout)
 
-        self.policy_h_1 = nn.Conv2d(256, 2, kernel_size=1, padding=0)
+        # Policy Head
+        # TODO: why just limiting to two neurons here? is this limiting the model capacity?
+        self.policy_h_1 = nn.Conv2d(self.num_neurons, 2, kernel_size=1, padding=0)
         self.policy_bn_1 = nn.BatchNorm2d(2)
         self.policy_h = nn.Linear(2 * a * b, cfg.action_size[cfg.env_type])
 
-        self.value_h_1 = nn.Conv2d(256, 1, kernel_size=1, padding=0)
+        # Value Head
+        # TODO: same comment as above
+        self.value_h_1 = nn.Conv2d(self.num_neurons, 1, kernel_size=1, padding=0)
         self.value_bn_1 = nn.BatchNorm2d(1)
-        self.value_mlp_1 = nn.Linear(a * b, 256)
-        self.value_h = nn.Linear(256, 1)
+        self.value_mlp_1 = nn.Linear(a * b, self.num_neurons)
+        self.value_h = nn.Linear(self.num_neurons, 1)
 
     def num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)

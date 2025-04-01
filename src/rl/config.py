@@ -6,8 +6,8 @@ import torch
 
 class Settings(BaseSettings):
     max_episode_length: int = 170
-    max_n_episodes: int = 500000
-    eval_games: int = 400
+    max_n_episodes: int = 100000  # 500000
+    eval_games: int = 100
     episodes_per_epoch: int = 5000
     elo_bins: int = 50
     eval_every_n_epochs: int = 2
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     episodes_replay_buffer_size: int = 50000
     sampling_ratio: float = 1.0
 
-    episode_save_path: str = "./data_6/"
+    episode_save_path: str = "./calibration/go5_mlp_mcts_20/"
 
     batch_size: int = 1024
     learning_rate: float = 1e-2
@@ -29,11 +29,13 @@ class Settings(BaseSettings):
     eps_schedule_max_epochs: int = 50000
     buffer_size_schedule_max_epochs: int = 15000
 
-    env_type: str = "go_5"
+    # Sets the env type to be trained
+    env_type: str = "go_5"  # ["tictactoe","connect4","chess","go","go_5"]
 
     draw_reward: float = 0.3
 
     model_type: str = "ag0_resnet"  # ["mlp" , "convnet", "resnet", "ag0_resnet"]
+    model_size: str = "large"  # ["small" , "medium", "large", "xlarge"]
 
     action_size: dict = {
         "go_5": (26),
@@ -114,7 +116,7 @@ class Settings(BaseSettings):
 
     # MCTS Hyperparams
     temperature: float = 1.0
-    num_simulations: int = 0
+    num_simulations: int = 20
     search_time: int = 0
     dirichlet_alpha: float = 0.1
     puct_coefficient: float = 1.0
@@ -126,7 +128,7 @@ class Settings(BaseSettings):
     device: str = (
         "cuda"
         if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
+        # else "mps"
+        # if torch.backends.mps.is_available()
         else "cpu"
     )

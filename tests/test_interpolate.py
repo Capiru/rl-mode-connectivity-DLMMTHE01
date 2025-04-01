@@ -4,9 +4,9 @@ import torch
 
 
 def test_interpolation(cfg):
-    model_1 = get_model("convnet", cfg)
+    model_1 = get_model(cfg.model_type, cfg)
 
-    model_2 = get_model("convnet", cfg)
+    model_2 = get_model(cfg.model_type, cfg)
 
     interpolated_model_0 = interpolate_models(
         model_1=model_1, model_2=model_2, alpha=0.0
